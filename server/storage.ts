@@ -1,8 +1,11 @@
 import { 
   BotSettings, InsertBotSettings,
   Command, InsertCommand,
-  Analytics, InsertAnalytics
+  Analytics, InsertAnalytics,
+  botSettings, commands, analytics
 } from "@shared/schema";
+import { db } from "./db";
+import { eq } from "drizzle-orm";
 
 export interface IStorage {
   // Bot Settings
@@ -21,71 +24,61 @@ export interface IStorage {
   updateAnalytics(commandName: string, responseTime: number): Promise<Analytics>;
 }
 
-export class MemStorage implements IStorage {
-  private botSettings?: BotSettings;
-  private commands: Map<number, Command>;
-  private analytics: Map<number, Analytics>;
-  private currentCommandId: number;
-  private currentAnalyticsId: number;
-
-  constructor() {
-    this.commands = new Map();
-    this.analytics = new Map();
-    this.currentCommandId = 1;
-    this.currentAnalyticsId = 1;
-  }
-
+export class DatabaseStorage implements IStorage {
   async getBotSettings(): Promise<BotSettings | undefined> {
-    return this.botSettings;
+    const [settings] = await db.select().from(botSettings).where(eq(botSettings.id, 1));
+    return settings;
   }
 
   async updateBotSettings(settings: InsertBotSettings): Promise<BotSettings> {
-    const updatedSettings = { id: 1, ...settings };
-    this.botSettings = updatedSettings;
-    return updatedSettings;
+    const [updated] = await db
+      .insert(botSettings)
+      .values({ ...settings, id: 1 })
+      .onConflictDoUpdate({
+        target: botSettings.id,
+        set: settings,
+      })
+      .returning();
+    return updated;
   }
 
   async getCommands(): Promise<Command[]> {
-    return Array.from(this.commands.values());
+    return await db.select().from(commands);
   }
 
   async getCommand(id: number): Promise<Command | undefined> {
-    return this.commands.get(id);
+    const [command] = await db.select().from(commands).where(eq(commands.id, id));
+    return command;
   }
 
   async createCommand(command: InsertCommand): Promise<Command> {
-    const id = this.currentCommandId++;
-    const newCommand: Command = {
-      id,
-      name: command.name,
-      description: command.description,
-      enabled: command.enabled ?? true,
-      response: command.response
-    };
-    this.commands.set(id, newCommand);
-    return newCommand;
+    const [created] = await db.insert(commands).values(command).returning();
+    return created;
   }
 
   async updateCommand(id: number, command: Partial<InsertCommand>): Promise<Command> {
-    const existing = await this.getCommand(id);
-    if (!existing) throw new Error('Command not found');
-
-    const updated = { ...existing, ...command };
-    this.commands.set(id, updated);
+    const [updated] = await db
+      .update(commands)
+      .set(command)
+      .where(eq(commands.id, id))
+      .returning();
+    if (!updated) throw new Error('Command not found');
     return updated;
   }
 
   async deleteCommand(id: number): Promise<void> {
-    this.commands.delete(id);
+    await db.delete(commands).where(eq(commands.id, id));
   }
 
   async getAnalytics(): Promise<Analytics[]> {
-    return Array.from(this.analytics.values());
+    return await db.select().from(analytics);
   }
 
   async updateAnalytics(commandName: string, responseTime: number): Promise<Analytics> {
-    const existing = Array.from(this.analytics.values())
-      .find(a => a.commandName === commandName);
+    const [existing] = await db
+      .select()
+      .from(analytics)
+      .where(eq(analytics.commandName, commandName));
 
     if (existing) {
       const usageCount = existing.usageCount + 1;
@@ -93,27 +86,29 @@ export class MemStorage implements IStorage {
         (existing.avgResponseTime * existing.usageCount + responseTime) / usageCount
       );
 
-      const updated = {
-        ...existing,
-        usageCount,
-        avgResponseTime
-      };
+      const [updated] = await db
+        .update(analytics)
+        .set({
+          usageCount,
+          avgResponseTime,
+        })
+        .where(eq(analytics.id, existing.id))
+        .returning();
 
-      this.analytics.set(existing.id, updated);
       return updated;
     }
 
-    const id = this.currentAnalyticsId++;
-    const newAnalytic = {
-      id,
-      commandName,
-      usageCount: 1,
-      avgResponseTime: responseTime
-    };
+    const [created] = await db
+      .insert(analytics)
+      .values({
+        commandName,
+        usageCount: 1,
+        avgResponseTime: responseTime,
+      })
+      .returning();
 
-    this.analytics.set(id, newAnalytic);
-    return newAnalytic;
+    return created;
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();
