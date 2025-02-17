@@ -1,14 +1,25 @@
-import type { Express } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { storage } from "./storage";
 import { generateCommandResponse, analyzeCommand } from "./openai";
 import { insertCommandSchema, insertBotSettingsSchema } from "@shared/schema";
 import { z } from "zod";
+import { setupAuth } from "./auth";
+
+function ensureAuthenticated(req: Request, res: Response, next: NextFunction) {
+  if (req.isAuthenticated()) {
+    return next();
+  }
+  res.status(401).json({ message: "Unauthorized" });
+}
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
   const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
+
+  // Set up authentication
+  setupAuth(app);
 
   // Bot Status Updates
   wss.on('connection', (ws) => {
@@ -24,57 +35,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
     ws.on('close', () => clearInterval(interval));
   });
 
-  // Bot Settings
-  app.get('/api/settings', async (req, res) => {
-    const settings = await storage.getBotSettings();
-    res.json(settings || { id: 1, token: "", prefix: "!", name: "Bot", status: "offline" });
+  // Protected Bot Settings Routes
+  app.get('/api/settings', ensureAuthenticated, async (req: Request, res: Response) => {
+    const settings = await storage.getBotSettingsByUserId(req.user!.id);
+    res.json(settings);
   });
 
-  app.post('/api/settings', async (req, res) => {
-    const settings = insertBotSettingsSchema.parse(req.body);
+  app.post('/api/settings', ensureAuthenticated, async (req: Request, res: Response) => {
+    const settings = insertBotSettingsSchema.parse({
+      ...req.body,
+      userId: req.user!.id
+    });
     const updated = await storage.updateBotSettings(settings);
     res.json(updated);
   });
 
-  // Commands
-  app.get('/api/commands', async (req, res) => {
-    const commands = await storage.getCommands();
+  app.delete('/api/settings/:id', ensureAuthenticated, async (req: Request, res: Response) => {
+    const id = z.number().parse(Number(req.params.id));
+    await storage.deleteBotSettings(id);
+    res.status(204).end();
+  });
+
+  // Protected Command Routes
+  app.get('/api/commands/:botId', ensureAuthenticated, async (req: Request, res: Response) => {
+    const botId = z.number().parse(Number(req.params.botId));
+    const commands = await storage.getCommands(botId);
     res.json(commands);
   });
 
-  app.post('/api/commands', async (req, res) => {
+  app.post('/api/commands', ensureAuthenticated, async (req: Request, res: Response) => {
     const command = insertCommandSchema.parse(req.body);
     const created = await storage.createCommand(command);
     res.json(created);
   });
 
-  app.patch('/api/commands/:id', async (req, res) => {
+  app.patch('/api/commands/:id', ensureAuthenticated, async (req: Request, res: Response) => {
     const id = z.number().parse(Number(req.params.id));
     const command = insertCommandSchema.partial().parse(req.body);
     const updated = await storage.updateCommand(id, command);
     res.json(updated);
   });
 
-  app.delete('/api/commands/:id', async (req, res) => {
+  app.delete('/api/commands/:id', ensureAuthenticated, async (req: Request, res: Response) => {
     const id = z.number().parse(Number(req.params.id));
     await storage.deleteCommand(id);
     res.status(204).end();
   });
 
-  // Analytics
-  app.get('/api/analytics', async (req, res) => {
-    const analytics = await storage.getAnalytics();
+  // Protected Analytics Routes
+  app.get('/api/analytics/:botId', ensureAuthenticated, async (req: Request, res: Response) => {
+    const botId = z.number().parse(Number(req.params.botId));
+    const analytics = await storage.getAnalytics(botId);
     res.json(analytics);
   });
 
-  // AI Assistant
-  app.post('/api/ai/generate', async (req, res) => {
+  // Protected AI Routes
+  app.post('/api/ai/generate', ensureAuthenticated, async (req: Request, res: Response) => {
     const { prompt } = z.object({ prompt: z.string() }).parse(req.body);
     const result = await generateCommandResponse(prompt);
     res.json(result);
   });
 
-  app.post('/api/ai/analyze', async (req, res) => {
+  app.post('/api/ai/analyze', ensureAuthenticated, async (req: Request, res: Response) => {
     const { command } = z.object({ command: z.string() }).parse(req.body);
     const result = await analyzeCommand(command);
     res.json(result);

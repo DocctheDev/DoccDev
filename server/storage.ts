@@ -2,38 +2,66 @@ import {
   BotSettings, InsertBotSettings,
   Command, InsertCommand,
   Analytics, InsertAnalytics,
-  botSettings, commands, analytics
+  User, InsertUser,
+  botSettings, commands, analytics, users
 } from "@shared/schema";
 import { db } from "./db";
 import { eq } from "drizzle-orm";
 
 export interface IStorage {
+  // User Management
+  getUser(id: number): Promise<User | undefined>;
+  getUserByUsername(username: string): Promise<User | undefined>;
+  createUser(user: InsertUser): Promise<User>;
+
   // Bot Settings
-  getBotSettings(): Promise<BotSettings | undefined>;
+  getBotSettings(): Promise<BotSettings[]>;
+  getBotSettingsByUserId(userId: number): Promise<BotSettings[]>;
   updateBotSettings(settings: InsertBotSettings): Promise<BotSettings>;
+  deleteBotSettings(id: number): Promise<void>;
 
   // Commands
-  getCommands(): Promise<Command[]>;
+  getCommands(botSettingsId: number): Promise<Command[]>;
   getCommand(id: number): Promise<Command | undefined>;
   createCommand(command: InsertCommand): Promise<Command>;
   updateCommand(id: number, command: Partial<InsertCommand>): Promise<Command>;
   deleteCommand(id: number): Promise<void>;
 
   // Analytics
-  getAnalytics(): Promise<Analytics[]>;
-  updateAnalytics(commandName: string, responseTime: number): Promise<Analytics>;
+  getAnalytics(botSettingsId: number): Promise<Analytics[]>;
+  updateAnalytics(commandName: string, responseTime: number, botSettingsId: number): Promise<Analytics>;
 }
 
 export class DatabaseStorage implements IStorage {
-  async getBotSettings(): Promise<BotSettings | undefined> {
-    const [settings] = await db.select().from(botSettings).where(eq(botSettings.id, 1));
-    return settings;
+  // User Management
+  async getUser(id: number): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user;
+  }
+
+  async createUser(user: InsertUser): Promise<User> {
+    const [created] = await db.insert(users).values(user).returning();
+    return created;
+  }
+
+  // Bot Settings
+  async getBotSettings(): Promise<BotSettings[]> {
+    return await db.select().from(botSettings);
+  }
+
+  async getBotSettingsByUserId(userId: number): Promise<BotSettings[]> {
+    return await db.select().from(botSettings).where(eq(botSettings.userId, userId));
   }
 
   async updateBotSettings(settings: InsertBotSettings): Promise<BotSettings> {
     const [updated] = await db
       .insert(botSettings)
-      .values({ ...settings, id: 1 })
+      .values(settings)
       .onConflictDoUpdate({
         target: botSettings.id,
         set: settings,
@@ -42,8 +70,13 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async getCommands(): Promise<Command[]> {
-    return await db.select().from(commands);
+  async deleteBotSettings(id: number): Promise<void> {
+    await db.delete(botSettings).where(eq(botSettings.id, id));
+  }
+
+  // Commands
+  async getCommands(botSettingsId: number): Promise<Command[]> {
+    return await db.select().from(commands).where(eq(commands.botSettingsId, botSettingsId));
   }
 
   async getCommand(id: number): Promise<Command | undefined> {
@@ -70,15 +103,17 @@ export class DatabaseStorage implements IStorage {
     await db.delete(commands).where(eq(commands.id, id));
   }
 
-  async getAnalytics(): Promise<Analytics[]> {
-    return await db.select().from(analytics);
+  // Analytics
+  async getAnalytics(botSettingsId: number): Promise<Analytics[]> {
+    return await db.select().from(analytics).where(eq(analytics.botSettingsId, botSettingsId));
   }
 
-  async updateAnalytics(commandName: string, responseTime: number): Promise<Analytics> {
+  async updateAnalytics(commandName: string, responseTime: number, botSettingsId: number): Promise<Analytics> {
     const [existing] = await db
       .select()
       .from(analytics)
-      .where(eq(analytics.commandName, commandName));
+      .where(eq(analytics.commandName, commandName))
+      .where(eq(analytics.botSettingsId, botSettingsId));
 
     if (existing) {
       const usageCount = existing.usageCount + 1;
@@ -102,6 +137,7 @@ export class DatabaseStorage implements IStorage {
       .insert(analytics)
       .values({
         commandName,
+        botSettingsId,
         usageCount: 1,
         avgResponseTime: responseTime,
       })

@@ -17,9 +17,10 @@ import {
 } from "recharts";
 import type { Analytics } from "@shared/schema";
 
-export function AnalyticsChart() {
+export function AnalyticsChart({ botId }: { botId?: number }) {
   const { data: analytics } = useQuery<Analytics[]>({
-    queryKey: ["/api/analytics"],
+    queryKey: ["/api/analytics", botId],
+    enabled: !!botId,
   });
 
   if (!analytics) return null;
