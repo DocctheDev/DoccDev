@@ -39,7 +39,23 @@ vite.config.ts.*
 /coverage
 .nyc_output
 
+# Database
+*.sqlite
+*.sqlite3
+*.db
+
 # Replit specific
 .replit
 .breakpoints
 replit.nix
+
+# Build output
+dist/
+build/
+.next/
+out/
+
+# Temporary files
+*.tmp
+*~
+._*
