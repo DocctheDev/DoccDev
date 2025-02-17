@@ -6,13 +6,20 @@ import { generateCommandResponse, analyzeCommand } from "./openai";
 import { insertCommandSchema, insertBotSettingsSchema } from "@shared/schema";
 import { z } from "zod";
 import { setupAuth } from "./auth";
+import rateLimit from 'express-rate-limit';
 
-function ensureAuthenticated(req: Request, res: Response, next: NextFunction) {
-  if (req.isAuthenticated()) {
-    return next();
-  }
-  res.status(401).json({ message: "Unauthorized" });
-}
+// Add rate limiting
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per windowMs
+  message: 'Too many requests from this IP, please try again later'
+});
+
+const aiLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 50, // Limit each IP to 50 AI requests per hour
+  message: 'AI request limit reached, please try again later'
+});
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
@@ -20,6 +27,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Set up authentication
   setupAuth(app);
+
+  // Apply rate limiting to all API routes
+  app.use('/api/', apiLimiter);
+
+  // Additional rate limiting for AI endpoints
+  app.use('/api/ai/', aiLimiter);
 
   // Bot Status Updates
   wss.on('connection', (ws) => {
