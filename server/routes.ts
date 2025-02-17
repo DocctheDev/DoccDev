@@ -5,7 +5,7 @@ import { storage } from "./storage";
 import { generateCommandResponse, analyzeCommand } from "./openai";
 import { insertCommandSchema, insertBotSettingsSchema } from "@shared/schema";
 import { z } from "zod";
-import { setupAuth } from "./auth";
+import { setupAuth, ensureAuthenticated } from "./auth";
 import rateLimit from 'express-rate-limit';
 
 // Add rate limiting
