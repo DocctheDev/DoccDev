@@ -11,9 +11,15 @@ import { pool } from "./db";
 
 const PostgresSessionStore = connectPg(session);
 
+// Extend Express User without circular reference
 declare global {
   namespace Express {
-    interface User extends User {}
+    interface User {
+      id: number;
+      username: string;
+      password: string;
+      createdAt: string;
+    }
   }
 }
 
@@ -88,7 +94,8 @@ export function setupAuth(app: Express) {
     }
   });
 
-  app.post("/api/register", async (req: Request, res: Response, next: NextFunction) => {
+  // Register route
+  app.post("/api/register", async (req, res, next) => {
     try {
       const existingUser = await storage.getUserByUsername(req.body.username);
       if (existingUser) {
@@ -109,8 +116,9 @@ export function setupAuth(app: Express) {
     }
   });
 
-  app.post("/api/login", (req: Request, res: Response, next: NextFunction) => {
-    passport.authenticate("local", (err: Error | null, user: User | false, info: { message: string } | undefined) => {
+  // Login route
+  app.post("/api/login", (req, res, next) => {
+    passport.authenticate("local", (err: Error | null, user: Express.User | false, info: { message: string } | undefined) => {
       if (err) return next(err);
       if (!user) {
         return res.status(401).json({ message: info?.message || "Authentication failed" });
@@ -122,14 +130,16 @@ export function setupAuth(app: Express) {
     })(req, res, next);
   });
 
-  app.post("/api/logout", (req: Request, res: Response, next: NextFunction) => {
+  // Logout route
+  app.post("/api/logout", (req, res, next) => {
     req.logout((err) => {
       if (err) return next(err);
       res.sendStatus(200);
     });
   });
 
-  app.get("/api/user", (req: Request, res: Response) => {
+  // Get current user route
+  app.get("/api/user", (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     res.json(req.user);
   });

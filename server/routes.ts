@@ -50,14 +50,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Protected Bot Settings Routes
   app.get('/api/settings', ensureAuthenticated, async (req: Request, res: Response) => {
-    const settings = await storage.getBotSettingsByUserId(req.user!.id);
+    const settings = await storage.getBotSettingsByUserId((req.user as Express.User).id);
     res.json(settings);
   });
 
   app.post('/api/settings', ensureAuthenticated, async (req: Request, res: Response) => {
     const settings = insertBotSettingsSchema.parse({
       ...req.body,
-      userId: req.user!.id
+      userId: (req.user as Express.User).id
     });
     const updated = await storage.updateBotSettings(settings);
     res.json(updated);
